@@ -78,7 +78,7 @@ int main(int argc, char *argv[]){
 
 	  segs[i] = param;
 
-	  current_seg += current_seg + seg_leng;
+	  current_seg += seg_leng;
 	}
 	
 	srand(atoi(argv[3]));
