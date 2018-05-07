@@ -14,16 +14,19 @@
 #define DEF_MODE 0666
 
 /* result stores either the max value or the sum of all values in the array */
-/* current_element is the current index of the array a given thread should be looking at */
+/* choice indicates if function should find max (if 1) or sum (if 2) 
 /* nums is the array of numbers the program should process */
-static int result = 0, choice, nums[MAX_LENGTH];
+static int result = 0, choice, nums[MAX_LENGTH + 1];
 /* lock mechanism(?) */
 static pthread_mutex_t mutex;
 
+/* Thread function for adding values to matrix */
 void *add_elements(void *params);
 
+/* Thread function for summing or finding the max value */
 void *action(void *params);
 
+/* array_params struct will store the arguments for each thread */
 typedef struct{
   int start_point, end_point, thread;
 } array_params;
@@ -42,47 +45,58 @@ struct timeval tv_delta(struct timeval start, struct timeval end){
 }
 
 int main(int argc, char *argv[]){
+	/* i is counter variable, target is total number of elements in array,
+	thread_count is number of threads, seg_leng is the number of elements
+	a majority of threads will process, current_seg tracks whhere a segment
+	should start */
 	int i, target = atoi(argv[1]), thread_count = atoi(argv[2]),
 	  seg_leng = target / thread_count, current_seg = 0; 
 	pthread_t tids[MAX_LENGTH + 1];
+	/* These structs will track time */
 	struct rusage start_ru, end_ru;
 	struct timeval start_wall, end_wall;
 	struct timeval diff_ru_utime, diff_wall, diff_ru_stime;
+	/* Array stores each threads' arguments, param will store a single 
+	thread's arguments */
 	array_params *segs[MAX_LENGTH + 1], *param;
 	
+	/* Get whether it should find max or sum */
 	choice = atoi(argv[4]);
 
 	/* Start timing */
 	getrusage(RUSAGE_SELF, &start_ru);
     gettimeofday(&start_wall, NULL);
-	
-	printf("Elements: %d Threads: %d, Seed: %d\n",
-		   atoi(argv[1]), atoi(argv[2]), atoi(argv[3]));
-	
-	pthread_mutex_init(&mutex, NULL);
-	printf("Assigning values\n");
 
+	/* Initiate anti-running case variable */
+	pthread_mutex_init(&mutex, NULL);
+	
+	/* Create the arguments each thread will use */
 	for(i = 0; i < thread_count; i++){
 	  param = malloc(sizeof(array_params));
+
+	  /* Create arguments for most threads */
 	  if(i != (thread_count - 1)){
 	    param->start_point = current_seg;
 		param->end_point = current_seg + seg_leng - 1;
 		param->thread = i;
 	  }
 
+	  /* Last thread will take care of the remainder of threads */
 	  else{
 	    param->start_point = current_seg;
 		param->end_point = target - 1;
 		param->thread = i;
 	  }
 
+	  /* Store arguments and move up */
 	  segs[i] = param;
 
 	  current_seg += seg_leng;
 	}
-	
-	srand(atoi(argv[3]));
 
+	/* Seed the random number generator */
+	srand(atoi(argv[3]));
+	
 	/* Create threads that will generate the random values for the array */
 	for(i = 0; i < thread_count; i++){	  
 	  pthread_create(&tids[i], NULL, add_elements, segs[i]);
@@ -93,21 +107,13 @@ int main(int argc, char *argv[]){
 	  pthread_join(tids[i], NULL);
 	}
 
-	current_seg = 0;
-	
-	printf("\nPerforming action\n");
-	
 	/* Create threads that will perform function (max or sum) */
     for(i = 0; i < thread_count; i++){
-	  /* printf("Creating thread %d\n", i);*/
 	  pthread_create(&tids[i], NULL, action, segs[i]);
-	  
-	  current_seg += current_seg + seg_leng;
 	}
 
 	/* Reap the threads */
 	for(i = 0; i < atoi(argv[2]); i++){
-	  /* printf("killing thread %d\n", i); */
 	  pthread_join(tids[i], NULL);
 	}
 
@@ -115,13 +121,6 @@ int main(int argc, char *argv[]){
 	for(i = 0; i < thread_count; i++){
 	  free(segs[i]);
 	}
-	
-	/* Print the numbers the threads generated */
-	printf("Array Values: \n");
-	for(i = 0; i < atoi(argv[1]); i++){
-	  printf("%d ", nums[i]);
-	}
-	printf("\n");
 	
 	/* Get end time */
 	gettimeofday(&end_wall, NULL);
@@ -133,12 +132,23 @@ int main(int argc, char *argv[]){
 	diff_wall = tv_delta(start_wall, end_wall);
 
 	/* Print time */
-	printf("User time: %ld.%06ld\n", diff_ru_utime.tv_sec, diff_ru_utime.tv_usec);
-	printf("System time: %ld.%06ld\n", diff_ru_stime.tv_sec, diff_ru_stime.tv_usec);
+	printf("User time: %ld.%06ld\n", diff_ru_utime.tv_sec,
+		   diff_ru_utime.tv_usec);
+	printf("System time: %ld.%06ld\n", diff_ru_stime.tv_sec,
+		   diff_ru_stime.tv_usec);
 	printf("Wall time: %ld.%06ld\n", diff_wall.tv_sec, diff_wall.tv_usec);
 
 	/* Print results if user specifies */
 	if(strcmp(argv[5], "Y") == 0){
+	  /* Print the numbers the threads generated */
+	  printf("\nArray Values: \n");
+
+	  for(i = 0; i < atoi(argv[1]); i++){
+		printf("%d\n", nums[i]);
+	  }
+
+	  printf("\n");
+	  
 	  /* Print max number */
 	  if(choice == 1){
 		printf("Max: %d\n", result);
@@ -153,12 +163,14 @@ int main(int argc, char *argv[]){
 	return 0;
 }
 
-/* add_elements is the function threads will use to add a random number to the array of numbers */
+/* add_elements is the function threads will use to add a random number 
+to the array of numbers */
 void *add_elements(void *params){
   /* stores the maxiumum number of values the array of numbers will store */
 	array_params segs = *((array_params *)params);
 	int *curr = &(segs.start_point), *end = &(segs.end_point);
-	
+
+	/* Store random value in thread if end of segment not reached */
 	while(*curr <= *end){
 	  int num = rand();
 	  
@@ -175,11 +187,14 @@ void *add_elements(void *params){
 /* Finds the maximum number in the array or the sum of
  all values in the array */
 void *action(void *params){
-  /* Tracks whether maxiumum or the sum should be found */
+    /* Tracks whether maxiumum or the sum should be found */
 	array_params segs = *(array_params *)params;
     int *curr = &(segs.start_point), *end = &(segs.end_point);
-	
+
+	/* If end of segment not reached... */
    	while(*curr <= *end){
+
+	  /* Check if max and if looking for max. If yes to both, store max */
 	  if(choice == 1){
 		pthread_mutex_lock(&mutex);
 		if(nums[*curr] > result){
