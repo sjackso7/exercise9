@@ -20,67 +20,13 @@ static int result = 0, choice, nums[MAX_LENGTH];
 /* lock mechanism(?) */
 static pthread_mutex_t mutex;
 
+void *add_elements(void *params);
+
+void *action(void *params);
+
 typedef struct{
   int start_point, end_point, thread;
-}array_params;
-
-/* add_elements is the function threads will use to add a random number to the array of numbers */
-void *add_elements(void *params){
-  /* stores the maxiumum number of values the array of numbers will store */
-	array_params segs =  *((array_params *)params);
-	int *curr = &(segs.start_point), *end = &(segs.end_point);
-	
-	printf("FUNCTION Thread: %d, Start: %d, End: %d\n", segs.thread, segs.start_point, segs.end_point);
-	
-	while(*curr <= *end){
-	  int num = rand();
-
-	  printf("Current Element: %d\n", *curr);
-	  
-	  pthread_mutex_lock(&mutex);
-	  nums[*curr] = num % 1000000;
-	  pthread_mutex_unlock(&mutex);
-
-	  (*curr)++;
-	}
-
-	return NULL;
-}
-
-/* Finds the maximum number in the array or the sum of
- all values in the array */
-void *action(void *params){
-  /* Tracks whether maxiumum or the sum should be found */
-	array_params segs = *(array_params *)params;
-    int *curr = &(segs.start_point), *end = &(segs.end_point);
-
-	printf("FUNCTION Thread: %d, Start: %d, End: %d\n", segs.thread, segs.start_point, segs.end_point);
-	
-   	while(*curr <= *end){
-
-	  printf("Current Element: %d\n", *curr);
-	  
-	  if(choice == 1){
-		pthread_mutex_lock(&mutex);
-		if(nums[*curr] > result){
-		  result = nums[*curr];
-		}
-		pthread_mutex_unlock(&mutex);
-	  }
-
-	  /* Calculate the sum if the sum should be found */
-	  if(choice == 2){
-		pthread_mutex_lock(&mutex);
-		result = (result + nums[*curr]) % 1000000;
-		pthread_mutex_unlock(&mutex);
-	  }
-
-	  /* Move to the next value in the array */
-	  (*curr)++;
-	}
-
-	return NULL;
-}
+} array_params;
 
 struct timeval tv_delta(struct timeval start, struct timeval end){
 	struct timeval delta = end;
@@ -102,8 +48,7 @@ int main(int argc, char *argv[]){
 	struct rusage start_ru, end_ru;
 	struct timeval start_wall, end_wall;
 	struct timeval diff_ru_utime, diff_wall, diff_ru_stime;
-	void *args;
-	array_params params;
+	array_params *segs[MAX_LENGTH + 1], *param;
 	
 	choice = atoi(argv[4]);
 
@@ -116,29 +61,31 @@ int main(int argc, char *argv[]){
 	
 	pthread_mutex_init(&mutex, NULL);
 	printf("Assigning values\n");
-	srand(atoi(argv[3]));
 
-	/* Create threads that will generate the random values for the array */
 	for(i = 0; i < thread_count; i++){
+	  param = malloc(sizeof(array_params));
 	  if(i != (thread_count - 1)){
-	    params.start_point = current_seg;
-		params.end_point = current_seg + seg_leng - 1;
-		params.thread = i;
+	    param->start_point = current_seg;
+		param->end_point = current_seg + seg_leng - 1;
+		param->thread = i;
 	  }
 
 	  else{
-	    params.start_point = current_seg;
-		params.end_point = target - 1;
-		params.thread = i;
+	    param->start_point = current_seg;
+		param->end_point = target - 1;
+		param->thread = i;
 	  }
 
-	  printf("Thread: %d, Start: %d, End: %d\n", i, params.start_point, params.end_point);
+	  segs[i] = param;
 
-	  args = &params;
-	  
-	  pthread_create(&tids[i], NULL, add_elements, args);
-	  
 	  current_seg += current_seg + seg_leng;
+	}
+	
+	srand(atoi(argv[3]));
+
+	/* Create threads that will generate the random values for the array */
+	for(i = 0; i < thread_count; i++){	  
+	  pthread_create(&tids[i], NULL, add_elements, segs[i]);
 	}
 
 	/* Reap the threads */
@@ -152,24 +99,8 @@ int main(int argc, char *argv[]){
 	
 	/* Create threads that will perform function (max or sum) */
     for(i = 0; i < thread_count; i++){
-	  if(i != (thread_count - 1)){
-	    params.start_point = current_seg;
-		params.end_point = current_seg + seg_leng - 1;
-		params.thread = i;
-	  }
-
-	  else{
-	    params.start_point = current_seg;
-		params.end_point = target - 1;
-		params.thread = i;
-	  }
-
-	  args = &params;
-	  
-	  printf("Thread: %d, Start: %d, End: %d\n", i, params.start_point, params.end_point);
-	  
 	  /* printf("Creating thread %d\n", i);*/
-	  pthread_create(&tids[i], NULL, action, args);
+	  pthread_create(&tids[i], NULL, action, segs[i]);
 	  
 	  current_seg += current_seg + seg_leng;
 	}
@@ -180,6 +111,10 @@ int main(int argc, char *argv[]){
 	  pthread_join(tids[i], NULL);
 	}
 
+	/* Free structs */
+	for(i = 0; i < thread_count; i++){
+	  free(segs[i]);
+	}
 	
 	/* Print the numbers the threads generated */
 	printf("Array Values: \n");
@@ -218,4 +153,51 @@ int main(int argc, char *argv[]){
 	return 0;
 }
 
+/* add_elements is the function threads will use to add a random number to the array of numbers */
+void *add_elements(void *params){
+  /* stores the maxiumum number of values the array of numbers will store */
+	array_params segs = *((array_params *)params);
+	int *curr = &(segs.start_point), *end = &(segs.end_point);
+	
+	while(*curr <= *end){
+	  int num = rand();
+	  
+	  pthread_mutex_lock(&mutex);
+	  nums[*curr] = num;
+	  pthread_mutex_unlock(&mutex);
 
+	  (*curr)++;
+	}
+
+	return NULL;
+}
+
+/* Finds the maximum number in the array or the sum of
+ all values in the array */
+void *action(void *params){
+  /* Tracks whether maxiumum or the sum should be found */
+	array_params segs = *(array_params *)params;
+    int *curr = &(segs.start_point), *end = &(segs.end_point);
+	
+   	while(*curr <= *end){
+	  if(choice == 1){
+		pthread_mutex_lock(&mutex);
+		if(nums[*curr] > result){
+		  result = nums[*curr];
+		}
+		pthread_mutex_unlock(&mutex);
+	  }
+
+	  /* Calculate the sum if the sum should be found */
+	  if(choice == 2){
+		pthread_mutex_lock(&mutex);
+		result = (result + nums[*curr]) % 1000000;
+		pthread_mutex_unlock(&mutex);
+	  }
+
+	  /* Move to the next value in the array */
+	  (*curr)++;
+	}
+
+	return NULL;
+}
