@@ -1,4 +1,4 @@
 Authors:
   Sarah Jackson (sjackso7)
   Ryan Havel ()
-  Gregory ()
+  Gregory Ducq (gducq)
